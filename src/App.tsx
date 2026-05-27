@@ -93,6 +93,27 @@ type PhotoPreview = {
   url: string
 }
 
+type DailyChartRow = {
+  day: string
+  inUsd: number
+  outUsd: number
+  inLrd: number
+  outLrd: number
+  count: number
+}
+
+type CategoryChartRow = {
+  category: string
+  usd: number
+  lrd: number
+  count: number
+}
+
+type TypeChartRow = {
+  type: TransactionType
+  count: number
+}
+
 const PHOTO_BUCKET = 'transaction-photos'
 
 const T = {
@@ -210,6 +231,27 @@ function amountText(item: Transaction) {
   }
   const sign = item.type === 'cash_in' ? '+' : '-'
   return `${sign}${item.currency} ${money(item.amount)}`
+}
+
+function addFlow(row: Transaction, target: { inUsd: number; outUsd: number; inLrd: number; outLrd: number }) {
+  if (row.type === 'cash_in') {
+    if (row.currency === 'USD') target.inUsd += Number(row.amount) || 0
+    if (row.currency === 'LRD') target.inLrd += Number(row.amount) || 0
+  }
+  if (row.type === 'expense' || row.type === 'transfer') {
+    if (row.currency === 'USD') target.outUsd += Number(row.amount) || 0
+    if (row.currency === 'LRD') target.outLrd += Number(row.amount) || 0
+  }
+  if (row.type === 'expense') {
+    target.inUsd += Number(row.change_usd) || 0
+    target.inLrd += Number(row.change_lrd) || 0
+  }
+  if (row.type === 'exchange') {
+    if (row.from_currency === 'USD') target.outUsd += Number(row.from_amount) || 0
+    if (row.from_currency === 'LRD') target.outLrd += Number(row.from_amount) || 0
+    if (row.to_currency === 'USD') target.inUsd += Number(row.to_amount) || 0
+    if (row.to_currency === 'LRD') target.inLrd += Number(row.to_amount) || 0
+  }
 }
 
 function blankSummary(): DaySummary {
@@ -439,6 +481,38 @@ function App() {
 
   const summary = useMemo(() => filtered.reduce(addToSummary, blankSummary()), [filtered])
 
+  const dailyChart = useMemo(() => {
+    const map = new Map<string, DailyChartRow>()
+    filtered.forEach((row) => {
+      const day = normalizeDate(row.date)
+      const item = map.get(day) ?? { day, inUsd: 0, outUsd: 0, inLrd: 0, outLrd: 0, count: 0 }
+      addFlow(row, item)
+      item.count += 1
+      map.set(day, item)
+    })
+    return Array.from(map.values()).sort((a, b) => a.day.localeCompare(b.day))
+  }, [filtered])
+
+  const categoryChart = useMemo(() => {
+    const map = new Map<string, CategoryChartRow>()
+    filtered
+      .filter((row) => row.type === 'expense' || row.type === 'cash_in' || row.type === 'transfer')
+      .forEach((row) => {
+        const item = map.get(row.category) ?? { category: row.category, usd: 0, lrd: 0, count: 0 }
+        if (row.currency === 'USD') item.usd += Number(row.amount) || 0
+        if (row.currency === 'LRD') item.lrd += Number(row.amount) || 0
+        item.count += 1
+        map.set(row.category, item)
+      })
+    return Array.from(map.values()).sort((a, b) => b.count - a.count).slice(0, 10)
+  }, [filtered])
+
+  const typeChart = useMemo(() => {
+    const map = new Map<TransactionType, number>()
+    filtered.forEach((row) => map.set(row.type, (map.get(row.type) ?? 0) + 1))
+    return Array.from(map.entries()).map(([type, count]) => ({ type, count }))
+  }, [filtered])
+
   const filteredDailyCash = useMemo(() => {
     return dailyCash.filter((item) => {
       if (projectId !== 'all' && item.local_project_id !== projectId) return false
@@ -601,6 +675,8 @@ function App() {
         <SummaryCard title={T.exchangeOut} usd={summary.exchangeOutUsd} lrd={summary.exchangeOutLrd} />
       </section>
 
+      <StatsCharts daily={dailyChart} categories={categoryChart} types={typeChart} />
+
       <section className="days-shell">
         <div className="table-title">
           <strong>{T.dailyOverview}</strong>
@@ -744,6 +820,97 @@ function SummaryCard({
       )}
     </div>
   )
+}
+
+function StatsCharts({ daily, categories, types }: { daily: DailyChartRow[]; categories: CategoryChartRow[]; types: TypeChartRow[] }) {
+  const maxUsd = Math.max(1, ...daily.map((item) => Math.max(item.inUsd, item.outUsd)))
+  const maxLrd = Math.max(1, ...daily.map((item) => Math.max(item.inLrd, item.outLrd)))
+  const maxCategoryCount = Math.max(1, ...categories.map((item) => item.count))
+  const totalTypeCount = Math.max(1, types.reduce((total, item) => total + item.count, 0))
+  const colors: Record<TransactionType, string> = {
+    cash_in: '#047857',
+    expense: '#b91c1c',
+    exchange: '#1d4ed8',
+    transfer: '#7c5c16',
+  }
+  const pieStops = types.reduce<{ cursor: number; stops: string[] }>((state, item) => {
+    const start = state.cursor
+    const end = start + (item.count / totalTypeCount) * 100
+    return {
+      cursor: end,
+      stops: [...state.stops, `${colors[item.type]} ${start}% ${end}%`],
+    }
+  }, { cursor: 0, stops: [] }).stops.join(', ')
+
+  return (
+    <section className="stats-grid">
+      <div className="chart-card wide">
+        <div className="chart-title">
+          <strong>{'\u6bcf\u65e5\u6536\u652f\u8d8b\u52bf'}</strong>
+          <span>{'\u6309\u5f53\u524d\u7b5b\u9009'}</span>
+        </div>
+        <div className="histogram">
+          {daily.length ? daily.map((item) => (
+            <div className="day-bars" key={item.day} title={`${item.day} / ${item.count} ${T.recordsShort}`}>
+              <div className="bar-pair">
+                <span className="bar good-bg" style={{ height: `${Math.max(4, (item.inUsd / maxUsd) * 100)}%` }} />
+                <span className="bar bad-bg" style={{ height: `${Math.max(4, (item.outUsd / maxUsd) * 100)}%` }} />
+              </div>
+              <div className="bar-pair lrd-bars">
+                <span className="bar good-bg" style={{ height: `${Math.max(4, (item.inLrd / maxLrd) * 100)}%` }} />
+                <span className="bar bad-bg" style={{ height: `${Math.max(4, (item.outLrd / maxLrd) * 100)}%` }} />
+              </div>
+              <span className="day-label">{item.day.slice(5)}</span>
+            </div>
+          )) : <div className="empty mini">{T.noData}</div>}
+        </div>
+        <div className="legend">
+          <span><i className="legend-dot good-bg" />USD/LRD {T.income}</span>
+          <span><i className="legend-dot bad-bg" />USD/LRD {T.expenseTransfer}</span>
+        </div>
+      </div>
+
+      <div className="chart-card">
+        <div className="chart-title">
+          <strong>{'\u7c7b\u522b\u5206\u5e03'}</strong>
+          <span>{'\u6309\u7b14\u6570\u6392\u5e8f'}</span>
+        </div>
+        <div className="category-bars">
+          {categories.length ? categories.map((item) => (
+            <div className="category-row" key={item.category}>
+              <div className="category-head">
+                <strong>{item.category}</strong>
+                <span>{item.count} {T.recordsShort}</span>
+              </div>
+              <div className="progress-track">
+                <span style={{ width: `${(item.count / maxCategoryCount) * 100}%` }} />
+              </div>
+              <small>USD {money(item.usd)} / LRD {money(item.lrd)}</small>
+            </div>
+          )) : <div className="empty mini">{T.noData}</div>}
+        </div>
+      </div>
+
+      <div className="chart-card">
+        <div className="chart-title">
+          <strong>{'\u7c7b\u578b\u5360\u6bd4'}</strong>
+          <span>{filteredTypeCount(types)} {T.records}</span>
+        </div>
+        <div className="pie-wrap">
+          <div className="pie" style={{ background: pieStops ? `conic-gradient(${pieStops})` : '#e5e7eb' }} />
+          <div className="pie-legend">
+            {types.length ? types.map((item) => (
+              <span key={item.type}><i className="legend-dot" style={{ background: colors[item.type] }} />{typeLabel(item.type)} {Math.round((item.count / totalTypeCount) * 100)}%</span>
+            )) : <span>{T.noData}</span>}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function filteredTypeCount(types: TypeChartRow[]) {
+  return types.reduce((total, item) => total + item.count, 0)
 }
 
 export default App
