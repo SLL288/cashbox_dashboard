@@ -90,7 +90,7 @@ type DaySummary = {
 
 type PhotoPreview = {
   item: Transaction
-  url: string
+  previewUrl: string
 }
 
 type DailyChartRow = {
@@ -207,13 +207,18 @@ function getPhotoPath(uri: string | null | undefined) {
   return text
 }
 
-async function resolvePhotoUrl(uri: string | null | undefined) {
+async function resolvePhotoUrl(uri: string | null | undefined, size: 'thumb' | 'preview' | 'original' = 'preview') {
   const text = String(uri ?? '')
   if (!text) return ''
   if (text.startsWith('http://') || text.startsWith('https://')) return text
   const path = getPhotoPath(text)
   if (!path || path.startsWith('file://')) return ''
-  const { data, error } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrl(path, 60 * 60)
+  const transform = size === 'thumb'
+    ? { width: 96, height: 96, resize: 'cover' as const, quality: 55 }
+    : size === 'preview'
+      ? { width: 1200, height: 900, resize: 'contain' as const, quality: 70 }
+      : undefined
+  const { data, error } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrl(path, 60 * 60, transform ? { transform } : undefined)
   if (error) throw error
   return data.signedUrl
 }
@@ -393,7 +398,8 @@ function downloadCsv(rows: Transaction[], projects: Project[], users: User[], mo
 }
 
 async function downloadPhoto(preview: PhotoPreview) {
-  const response = await fetch(preview.url)
+  const originalUrl = await resolvePhotoUrl(preview.item.photo_uri, 'original')
+  const response = await fetch(originalUrl || preview.previewUrl)
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -531,7 +537,7 @@ function App() {
     Promise.all(
       rowsWithPhotos.map(async (item) => {
         try {
-          return [item.local_transaction_id, await resolvePhotoUrl(item.photo_uri)] as const
+          return [item.local_transaction_id, await resolvePhotoUrl(item.photo_uri, 'thumb')] as const
         } catch {
           return [item.local_transaction_id, ''] as const
         }
@@ -747,7 +753,7 @@ function App() {
                                   className="photo-thumb"
                                   onClick={() => {
                                     const url = photoUrls[item.local_transaction_id]
-                                    if (url) setPhotoPreview({ item, url })
+                                    if (url) void resolvePhotoUrl(item.photo_uri, 'preview').then((previewUrl) => setPhotoPreview({ item, previewUrl: previewUrl || url }))
                                   }}
                                   title={T.viewPhoto}
                                 >
@@ -783,7 +789,7 @@ function App() {
               </div>
               <button type="button" className="button secondary" onClick={() => setPhotoPreview(null)}>{T.close}</button>
             </div>
-            <img className="photo-large" src={photoPreview.url} alt={T.photo} />
+            <img className="photo-large" src={photoPreview.previewUrl} alt={T.photo} />
             <div className="photo-modal-actions">
               <button type="button" className="button primary" onClick={() => void downloadPhoto(photoPreview)}>{T.downloadPhoto}</button>
             </div>
