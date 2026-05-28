@@ -323,29 +323,75 @@ function isNewerCashRow(next: DailyCash, current: DailyCash) {
   return Number(next.id ?? 0) > Number(current.id ?? 0)
 }
 
-function applyCashToSummary(total: DaySummary, cashRows: DailyCash[], rows: Transaction[]) {
-  const transactionUsers = new Set(rows.map((row) => row.created_by))
+function cashKey(projectId: string, userId: string) {
+  return `${projectId}::${userId}`
+}
+
+function buildSyntheticCash(projectId: string, date: string, userId: string, initialUsd: number, initialLrd: number): DailyCash {
+  return {
+    local_daily_id: '',
+    local_project_id: projectId,
+    local_user_id: userId,
+    date,
+    initial_usd: initialUsd,
+    initial_lrd: initialLrd,
+    actual_usd: null,
+    actual_lrd: null,
+    note: null,
+    created_by: userId,
+    created_at_local: '',
+    updated_at_local: null,
+  }
+}
+
+function summaryForRows(rows: Transaction[]) {
+  return rows.reduce(addToSummary, blankSummary())
+}
+
+function expectedBalance(cash: DailyCash, rows: Transaction[]) {
+  const summary = summaryForRows(rows)
+  return {
+    usd: Number(cash.initial_usd) + summary.inUsd + summary.exchangeInUsd - summary.outUsd - summary.exchangeOutUsd,
+    lrd: Number(cash.initial_lrd) + summary.inLrd + summary.exchangeInLrd - summary.outLrd - summary.exchangeOutLrd,
+  }
+}
+
+function carryForwardCash(projectId: string, date: string, userId: string, allCashRows: DailyCash[], allRows: Transaction[]) {
+  const previous = allCashRows
+    .filter((row) => row.local_project_id === projectId && cashOwner(row) === userId && normalizeDate(row.date) < date)
+    .sort((a, b) => {
+      const dateCompare = normalizeDate(b.date).localeCompare(normalizeDate(a.date))
+      if (dateCompare !== 0) return dateCompare
+      if (cashTimestamp(b) !== cashTimestamp(a)) return cashTimestamp(b) - cashTimestamp(a)
+      return Number(b.id ?? 0) - Number(a.id ?? 0)
+    })[0]
+  if (!previous) return buildSyntheticCash(projectId, date, userId, 0, 0)
+
+  const previousDate = normalizeDate(previous.date)
+  const previousRows = allRows.filter((row) =>
+    row.local_project_id === projectId &&
+    row.created_by === userId &&
+    normalizeDate(row.date) === previousDate &&
+    row.active === 1
+  )
+  const balance = expectedBalance(previous, previousRows)
+  return buildSyntheticCash(projectId, date, userId, previous.actual_usd ?? balance.usd, previous.actual_lrd ?? balance.lrd)
+}
+
+function applyCashToSummary(total: DaySummary, cashRows: DailyCash[], rows: Transaction[], assignedKeys: string[], allCashRows: DailyCash[], allRows: Transaction[], date: string) {
+  const transactionKeys = new Set(rows.map((row) => cashKey(row.local_project_id, row.created_by)))
   const cashByUser = new Map<string, DailyCash>()
   cashRows.forEach((row) => {
     const owner = cashOwner(row)
     if (!owner) return
-    const current = cashByUser.get(owner)
-    if (!current || isNewerCashRow(row, current)) cashByUser.set(owner, row)
+    const key = cashKey(row.local_project_id, owner)
+    const current = cashByUser.get(key)
+    if (!current || isNewerCashRow(row, current)) cashByUser.set(key, row)
   })
-  transactionUsers.forEach((owner) => {
-    if (!cashByUser.has(owner)) {
-      cashByUser.set(owner, {
-        local_daily_id: '',
-        local_project_id: '',
-        local_user_id: owner,
-        date: '',
-        initial_usd: 0,
-        initial_lrd: 0,
-        actual_usd: null,
-        actual_lrd: null,
-        note: null,
-        created_by: owner,
-      })
+  new Set([...assignedKeys, ...transactionKeys]).forEach((key) => {
+    if (!cashByUser.has(key)) {
+      const [projectId, userId] = key.split('::')
+      cashByUser.set(key, carryForwardCash(projectId, date, userId, allCashRows, allRows))
     }
   })
 
@@ -359,25 +405,15 @@ function applyCashToSummary(total: DaySummary, cashRows: DailyCash[], rows: Tran
   total.peopleCount = cashByUser.size
   total.actualComplete = false
 
-  for (const [owner, cash] of cashByUser) {
-    const userSummary = rows.filter((row) => row.created_by === owner).reduce(addToSummary, blankSummary())
-    const expectedUsd =
-      Number(cash.initial_usd) +
-      userSummary.inUsd +
-      userSummary.exchangeInUsd -
-      userSummary.outUsd -
-      userSummary.exchangeOutUsd
-    const expectedLrd =
-      Number(cash.initial_lrd) +
-      userSummary.inLrd +
-      userSummary.exchangeInLrd -
-      userSummary.outLrd -
-      userSummary.exchangeOutLrd
+  for (const [key, cash] of cashByUser) {
+    const [cashProjectId, owner] = key.split('::')
+    const userRows = rows.filter((row) => row.local_project_id === cashProjectId && row.created_by === owner)
+    const expected = expectedBalance(cash, userRows)
     const hasActual = cash.actual_usd !== null && cash.actual_lrd !== null
     total.initialUsd += Number(cash.initial_usd) || 0
     total.initialLrd += Number(cash.initial_lrd) || 0
-    total.expectedUsd += expectedUsd
-    total.expectedLrd += expectedLrd
+    total.expectedUsd += expected.usd
+    total.expectedLrd += expected.lrd
     if (hasActual) total.actualCount += 1
     total.balanceUsd += hasActual ? Number(cash.actual_usd) || 0 : 0
     total.balanceLrd += hasActual ? Number(cash.actual_lrd) || 0 : 0
@@ -600,12 +636,22 @@ function App() {
     })
     map.forEach((group) => {
       group.rows.sort((a, b) => (a.created_at_local || a.date).localeCompare(b.created_at_local || b.date))
-      applyCashToSummary(group.summary, group.cashRows, group.rows)
+      const groupProjectIds = new Set(
+        projectId !== 'all'
+          ? [projectId]
+          : [...group.rows.map((row) => row.local_project_id), ...group.cashRows.map((row) => row.local_project_id)]
+      )
+      const assignedKeys = projectUsers
+        .filter((assignment) => assignment.active === 1 && groupProjectIds.has(assignment.local_project_id))
+        .filter((assignment) => userId === 'all' || assignment.local_user_id === userId)
+        .filter((assignment) => users.find((user) => user.local_user_id === assignment.local_user_id)?.role !== 'viewer')
+        .map((assignment) => cashKey(assignment.local_project_id, assignment.local_user_id))
+      applyCashToSummary(group.summary, group.cashRows, group.rows, assignedKeys, dailyCash, transactions, group.day)
     })
     return Array.from(map.values())
       .filter((group) => group.rows.length > 0)
       .sort((a, b) => b.day.localeCompare(a.day))
-  }, [filtered, filteredDailyCash])
+  }, [dailyCash, filtered, filteredDailyCash, projectId, projectUsers, transactions, userId, users])
 
   const projectName = (id: string) => projects.find((project) => project.local_project_id === id)?.project_name ?? id
   const userName = (id: string) => users.find((user) => user.local_user_id === id)?.name ?? id
