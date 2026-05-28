@@ -711,12 +711,6 @@ function App() {
               </button>
               {open ? (
                 <div className="day-detail">
-                  <div className="cash-summary-grid">
-                    <SummaryCard title={T.initial} usd={group.summary.initialUsd} lrd={group.summary.initialLrd} />
-                    <SummaryCard title={T.expected} usd={group.summary.expectedUsd} lrd={group.summary.expectedLrd} />
-                    <SummaryCard title={userId !== 'all' && group.summary.actualCount === 0 ? T.actualNotEntered : T.cashboxBalance} usd={group.summary.balanceUsd} lrd={group.summary.balanceLrd} muted={userId !== 'all' && group.summary.actualCount === 0} />
-                    <SummaryCard title={T.exchangeOut} usd={group.summary.exchangeOutUsd} lrd={group.summary.exchangeOutLrd} />
-                  </div>
                   <div className="table-wrap day-table">
                     <table>
                       <thead>

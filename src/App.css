@@ -509,17 +509,6 @@ input {
   padding: 12px;
 }
 
-.cash-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.cash-summary-grid .summary-card {
-  border-color: #ead8a5;
-}
-
 table {
   width: 100%;
   border-collapse: collapse;
