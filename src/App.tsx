@@ -57,6 +57,7 @@ type Transaction = {
 }
 
 type DailyCash = {
+  id?: number
   local_daily_id: string
   local_project_id: string
   local_user_id: string | null
@@ -67,6 +68,8 @@ type DailyCash = {
   actual_lrd: number | null
   note: string | null
   created_by: string | null
+  created_at_local?: string | null
+  updated_at_local?: string | null
 }
 
 type DaySummary = {
@@ -85,6 +88,7 @@ type DaySummary = {
   balanceUsd: number
   balanceLrd: number
   actualCount: number
+  actualComplete: boolean
   peopleCount: number
 }
 
@@ -276,6 +280,7 @@ function blankSummary(): DaySummary {
     balanceUsd: 0,
     balanceLrd: 0,
     actualCount: 0,
+    actualComplete: false,
     peopleCount: 0,
   }
 }
@@ -306,12 +311,26 @@ function cashOwner(row: DailyCash) {
   return row.local_user_id ?? row.created_by ?? ''
 }
 
-function applyCashToSummary(total: DaySummary, cashRows: DailyCash[], rows: Transaction[], singleUser: boolean) {
+function cashTimestamp(row: DailyCash) {
+  const parsed = new Date(String(row.updated_at_local ?? row.created_at_local ?? '')).getTime()
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function isNewerCashRow(next: DailyCash, current: DailyCash) {
+  const nextTime = cashTimestamp(next)
+  const currentTime = cashTimestamp(current)
+  if (nextTime !== currentTime) return nextTime > currentTime
+  return Number(next.id ?? 0) > Number(current.id ?? 0)
+}
+
+function applyCashToSummary(total: DaySummary, cashRows: DailyCash[], rows: Transaction[]) {
   const transactionUsers = new Set(rows.map((row) => row.created_by))
   const cashByUser = new Map<string, DailyCash>()
   cashRows.forEach((row) => {
     const owner = cashOwner(row)
-    if (owner) cashByUser.set(owner, row)
+    if (!owner) return
+    const current = cashByUser.get(owner)
+    if (!current || isNewerCashRow(row, current)) cashByUser.set(owner, row)
   })
   transactionUsers.forEach((owner) => {
     if (!cashByUser.has(owner)) {
@@ -338,6 +357,7 @@ function applyCashToSummary(total: DaySummary, cashRows: DailyCash[], rows: Tran
   total.balanceLrd = 0
   total.actualCount = 0
   total.peopleCount = cashByUser.size
+  total.actualComplete = false
 
   for (const [owner, cash] of cashByUser) {
     const userSummary = rows.filter((row) => row.created_by === owner).reduce(addToSummary, blankSummary())
@@ -353,14 +373,19 @@ function applyCashToSummary(total: DaySummary, cashRows: DailyCash[], rows: Tran
       userSummary.exchangeInLrd -
       userSummary.outLrd -
       userSummary.exchangeOutLrd
-    const hasActual = cash.actual_usd !== null || cash.actual_lrd !== null
+    const hasActual = cash.actual_usd !== null && cash.actual_lrd !== null
     total.initialUsd += Number(cash.initial_usd) || 0
     total.initialLrd += Number(cash.initial_lrd) || 0
     total.expectedUsd += expectedUsd
     total.expectedLrd += expectedLrd
     if (hasActual) total.actualCount += 1
-    total.balanceUsd += singleUser && !hasActual ? 0 : cash.actual_usd ?? expectedUsd
-    total.balanceLrd += singleUser && !hasActual ? 0 : cash.actual_lrd ?? expectedLrd
+    total.balanceUsd += hasActual ? Number(cash.actual_usd) || 0 : 0
+    total.balanceLrd += hasActual ? Number(cash.actual_lrd) || 0 : 0
+  }
+  total.actualComplete = total.peopleCount > 0 && total.actualCount === total.peopleCount
+  if (!total.actualComplete) {
+    total.balanceUsd = 0
+    total.balanceLrd = 0
   }
   return total
 }
@@ -575,12 +600,12 @@ function App() {
     })
     map.forEach((group) => {
       group.rows.sort((a, b) => (a.created_at_local || a.date).localeCompare(b.created_at_local || b.date))
-      applyCashToSummary(group.summary, group.cashRows, group.rows, userId !== 'all')
+      applyCashToSummary(group.summary, group.cashRows, group.rows)
     })
     return Array.from(map.values())
       .filter((group) => group.rows.length > 0)
       .sort((a, b) => b.day.localeCompare(a.day))
-  }, [filtered, filteredDailyCash, userId])
+  }, [filtered, filteredDailyCash])
 
   const projectName = (id: string) => projects.find((project) => project.local_project_id === id)?.project_name ?? id
   const userName = (id: string) => users.find((user) => user.local_user_id === id)?.name ?? id
@@ -690,7 +715,7 @@ function App() {
         </div>
         {dayGroups.map((group) => {
           const open = openDays[group.day] ?? false
-          const actualText = userId !== 'all' && group.summary.actualCount === 0
+          const actualText = !group.summary.actualComplete
             ? T.notEntered
             : `USD ${money(group.summary.balanceUsd)} / LRD ${money(group.summary.balanceLrd)}`
           return (
