@@ -415,14 +415,10 @@ function applyCashToSummary(total: DaySummary, cashRows: DailyCash[], rows: Tran
     total.expectedUsd += expected.usd
     total.expectedLrd += expected.lrd
     if (hasActual) total.actualCount += 1
-    total.balanceUsd += hasActual ? Number(cash.actual_usd) || 0 : 0
-    total.balanceLrd += hasActual ? Number(cash.actual_lrd) || 0 : 0
+    total.balanceUsd += cash.actual_usd ?? expected.usd
+    total.balanceLrd += cash.actual_lrd ?? expected.lrd
   }
   total.actualComplete = total.peopleCount > 0 && total.actualCount === total.peopleCount
-  if (!total.actualComplete) {
-    total.balanceUsd = 0
-    total.balanceLrd = 0
-  }
   return total
 }
 
@@ -761,9 +757,7 @@ function App() {
         </div>
         {dayGroups.map((group) => {
           const open = openDays[group.day] ?? false
-          const actualText = !group.summary.actualComplete
-            ? T.notEntered
-            : `USD ${money(group.summary.balanceUsd)} / LRD ${money(group.summary.balanceLrd)}`
+          const actualText = `USD ${money(group.summary.balanceUsd)} / LRD ${money(group.summary.balanceLrd)}`
           return (
             <section className="day-group" key={group.day}>
               <button type="button" className="day-header" onClick={() => setOpenDays((current) => ({ ...current, [group.day]: !open }))}>
