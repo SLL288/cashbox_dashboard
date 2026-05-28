@@ -373,18 +373,18 @@ function escapeCsv(value: string | number | null | undefined) {
 function downloadCsv(rows: Transaction[], projects: Project[], users: User[], month: string) {
   const projectName = (id: string) => projects.find((project) => project.local_project_id === id)?.project_name ?? id
   const userName = (id: string) => users.find((user) => user.local_user_id === id)?.name ?? id
-  const header = [T.createdTime, T.project, T.creator, T.type, T.amount, T.category, T.area, T.change, T.note, T.photo, T.sync]
+  const header = [T.createdTime, T.amount, T.category, T.area, T.change, T.note, T.photo, T.project, T.creator, T.type, T.sync]
   const body = rows.map((row) => [
     formatDateTime(row.created_at_local || row.date),
-    projectName(row.local_project_id),
-    userName(row.created_by),
-    typeLabel(row.type),
     amountText(row),
     row.category,
     row.area ?? '',
     Number(row.change_usd || row.change_lrd) ? `USD ${money(row.change_usd)} / LRD ${money(row.change_lrd)}` : '',
     row.note ?? '',
     row.photo_uri ? T.hasPhoto : '',
+    projectName(row.local_project_id),
+    userName(row.created_by),
+    typeLabel(row.type),
     row.sync_status,
   ])
   const csv = [header, ...body].map((line) => line.map(escapeCsv).join(',')).join('\n')
@@ -722,15 +722,15 @@ function App() {
                       <thead>
                         <tr>
                           <th>{T.time}</th>
-                          <th>{T.project}</th>
-                          <th>{T.creator}</th>
-                          <th>{T.type}</th>
                           <th>{T.amount}</th>
                           <th>{T.category}</th>
                           <th>{T.area}</th>
                           <th>{T.change}</th>
                           <th>{T.note}</th>
                           <th>{T.photo}</th>
+                          <th>{T.project}</th>
+                          <th>{T.creator}</th>
+                          <th>{T.type}</th>
                           <th>{T.sync}</th>
                         </tr>
                       </thead>
@@ -738,9 +738,6 @@ function App() {
                         {group.rows.map((item) => (
                           <tr key={item.local_transaction_id}>
                             <td>{formatTime(item.created_at_local || item.date)}</td>
-                            <td>{projectName(item.local_project_id)}</td>
-                            <td>{userName(item.created_by)}</td>
-                            <td><span className={`pill ${item.type}`}>{typeLabel(item.type)}</span></td>
                             <td className={item.type === 'cash_in' ? 'amount good' : item.type === 'exchange' ? 'amount exchange' : 'amount bad'}>{amountText(item)}</td>
                             <td>{item.category}</td>
                             <td>{item.area ?? ''}</td>
@@ -765,6 +762,9 @@ function App() {
                                 </button>
                               ) : null}
                             </td>
+                            <td>{projectName(item.local_project_id)}</td>
+                            <td>{userName(item.created_by)}</td>
+                            <td><span className={`pill ${item.type}`}>{typeLabel(item.type)}</span></td>
                             <td>{item.sync_status}</td>
                           </tr>
                         ))}
