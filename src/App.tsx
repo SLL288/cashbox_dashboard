@@ -411,8 +411,8 @@ async function downloadPhoto(preview: PhotoPreview) {
 
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
-  const [loginName, setLoginName] = useState('admin')
-  const [loginPassword, setLoginPassword] = useState('admin')
+  const [loginName, setLoginName] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -608,11 +608,11 @@ function App() {
           {loginError ? <div className="error">{loginError}</div> : null}
           <label>
             {'\u7528\u6237\u540d'}
-            <input value={loginName} onChange={(event) => setLoginName(event.target.value)} />
+            <input value={loginName} onChange={(event) => setLoginName(event.target.value)} autoComplete="username" />
           </label>
           <label>
             {'\u5bc6\u7801'}
-            <input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} />
+            <input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} autoComplete="current-password" />
           </label>
           <button type="submit" className="button primary">{'\u767b\u5f55'}</button>
         </form>
