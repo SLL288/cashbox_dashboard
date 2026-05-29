@@ -113,6 +113,13 @@ type CategoryChartRow = {
   count: number
 }
 
+type AreaExpenseRow = {
+  area: string
+  usd: number
+  lrd: number
+  count: number
+}
+
 type TypeChartRow = {
   type: TransactionType
   count: number
@@ -159,6 +166,9 @@ const T = {
   searchPlaceholder: '\u7c7b\u522b\u3001\u5907\u6ce8\u3001\u5730\u70b9\u3001\u7c7b\u578b',
   income: '\u6536\u5165',
   expenseTransfer: '\u652f\u51fa/\u8f6c\u8d26',
+  expenseCompare: '\u652f\u51fa\u5bf9\u6bd4',
+  areaCompare: '\u5916\u56f4 / \u77ff\u533a',
+  categoryCompare: '\u7c7b\u522b\u5bf9\u6bd4',
   exchangeIn: '\u5151\u6362\u5165',
   exchangeOut: '\u5151\u6362\u51fa',
   dailyOverview: '\u6bcf\u65e5\u6c47\u603b',
@@ -696,6 +706,26 @@ function App() {
     return Array.from(map.values()).sort((a, b) => b.count - a.count).slice(0, 10)
   }, [filtered])
 
+  const areaExpenseChart = useMemo(() => {
+    const map = new Map<string, AreaExpenseRow>()
+    filtered
+      .filter((row) => row.type === 'expense')
+      .forEach((row) => {
+        const area = row.area || '\u672a\u586b\u5199'
+        const item = map.get(area) ?? { area, usd: 0, lrd: 0, count: 0 }
+        if (row.currency === 'USD') item.usd += Number(row.amount) || 0
+        if (row.currency === 'LRD') item.lrd += Number(row.amount) || 0
+        item.count += 1
+        map.set(area, item)
+      })
+    const preferred = ['\u5916\u56f4', '\u77ff\u533a']
+    return Array.from(map.values()).sort((a, b) => {
+      const order = preferred.indexOf(a.area) - preferred.indexOf(b.area)
+      if (preferred.includes(a.area) || preferred.includes(b.area)) return order
+      return b.count - a.count
+    })
+  }, [filtered])
+
   const typeChart = useMemo(() => {
     const map = new Map<TransactionType, number>()
     filtered.forEach((row) => map.set(row.type, (map.get(row.type) ?? 0) + 1))
@@ -887,7 +917,7 @@ function App() {
         <SummaryCard title={T.exchangeOut} usd={summary.exchangeOutUsd} lrd={summary.exchangeOutLrd} />
       </section>
 
-      <StatsCharts daily={dailyChart} categories={categoryChart} types={typeChart} />
+      <StatsCharts daily={dailyChart} categories={categoryChart} areaExpenses={areaExpenseChart} types={typeChart} />
 
       <section className="days-shell">
         <div className="table-title">
@@ -1086,7 +1116,17 @@ function BalanceSnapshotSection({ snapshot }: { snapshot: BalanceSnapshot | null
   )
 }
 
-function StatsCharts({ daily, categories, types }: { daily: DailyChartRow[]; categories: CategoryChartRow[]; types: TypeChartRow[] }) {
+function StatsCharts({
+  daily,
+  categories,
+  areaExpenses,
+  types,
+}: {
+  daily: DailyChartRow[]
+  categories: CategoryChartRow[]
+  areaExpenses: AreaExpenseRow[]
+  types: TypeChartRow[]
+}) {
   const maxUsd = Math.max(1, ...daily.map((item) => Math.max(item.inUsd, item.outUsd)))
   const maxLrd = Math.max(1, ...daily.map((item) => Math.max(item.inLrd, item.outLrd)))
   const maxChartValue = Math.max(maxUsd, maxLrd)
@@ -1095,7 +1135,11 @@ function StatsCharts({ daily, categories, types }: { daily: DailyChartRow[]; cat
     return `${Math.max(4, (Math.log10(value + 1) / Math.log10(maxChartValue + 1)) * 100)}%`
   }
   const axisLabels = [maxChartValue, Math.sqrt(maxChartValue), 0]
-  const maxCategoryCount = Math.max(1, ...categories.map((item) => item.count))
+  const maxExpenseAmount = Math.max(
+    1,
+    ...categories.map((item) => Math.max(item.usd, item.lrd)),
+    ...areaExpenses.map((item) => Math.max(item.usd, item.lrd)),
+  )
   const totalTypeCount = Math.max(1, types.reduce((total, item) => total + item.count, 0))
   const colors: Record<TransactionType, string> = {
     cash_in: '#047857',
@@ -1155,23 +1199,26 @@ function StatsCharts({ daily, categories, types }: { daily: DailyChartRow[]; cat
         </div>
       </div>
 
-      <div className="chart-card">
+      <div className="chart-card compact">
         <div className="chart-title">
-          <strong>{'\u7c7b\u522b\u5206\u5e03'}</strong>
-          <span>{'\u6309\u7b14\u6570\u6392\u5e8f'}</span>
+          <strong>{T.expenseCompare}</strong>
+          <span>{T.areaCompare}</span>
+        </div>
+        <div className="area-compare-list">
+          {areaExpenses.length ? areaExpenses.map((item) => (
+            <AmountCompareRow key={item.area} label={item.area} usd={item.usd} lrd={item.lrd} max={maxExpenseAmount} count={item.count} />
+          )) : <div className="empty mini">{T.noData}</div>}
+        </div>
+      </div>
+
+      <div className="chart-card compact">
+        <div className="chart-title">
+          <strong>{T.categoryCompare}</strong>
+          <span>{'\u6309\u91d1\u989d'}</span>
         </div>
         <div className="category-bars">
           {categories.length ? categories.map((item) => (
-            <div className="category-row" key={item.category}>
-              <div className="category-head">
-                <strong>{item.category}</strong>
-                <span>{item.count} {T.recordsShort}</span>
-              </div>
-              <div className="progress-track">
-                <span style={{ width: `${(item.count / maxCategoryCount) * 100}%` }} />
-              </div>
-              <small>USD {money(item.usd)} / LRD {money(item.lrd)}</small>
-            </div>
+            <AmountCompareRow key={item.category} label={item.category} usd={item.usd} lrd={item.lrd} max={maxExpenseAmount} count={item.count} />
           )) : <div className="empty mini">{T.noData}</div>}
         </div>
       </div>
@@ -1196,6 +1243,22 @@ function StatsCharts({ daily, categories, types }: { daily: DailyChartRow[]; cat
 
 function filteredTypeCount(types: TypeChartRow[]) {
   return types.reduce((total, item) => total + item.count, 0)
+}
+
+function AmountCompareRow({ label, usd, lrd, max, count }: { label: string; usd: number; lrd: number; max: number; count: number }) {
+  return (
+    <div className="amount-compare-row">
+      <div className="category-head">
+        <strong>{label}</strong>
+        <span>{count} {T.recordsShort}</span>
+      </div>
+      <div className="amount-bars">
+        <span className="usd-track"><i style={{ width: `${Math.max(3, (usd / max) * 100)}%` }} /></span>
+        <span className="lrd-track"><i style={{ width: `${Math.max(3, (lrd / max) * 100)}%` }} /></span>
+      </div>
+      <small>USD {money(usd)} / LRD {money(lrd)}</small>
+    </div>
+  )
 }
 
 export default App

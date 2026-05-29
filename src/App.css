@@ -296,9 +296,10 @@ input {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: minmax(520px, 1.45fr) minmax(280px, 0.85fr) minmax(280px, 0.85fr);
+  grid-template-columns: minmax(560px, 1.55fr) minmax(240px, 0.72fr) minmax(280px, 0.9fr) minmax(240px, 0.7fr);
   gap: 14px;
   margin-bottom: 16px;
+  align-items: stretch;
 }
 
 .chart-card {
@@ -312,6 +313,10 @@ input {
 
 .chart-card.wide {
   min-width: 0;
+}
+
+.chart-card.compact {
+  padding: 14px;
 }
 
 .chart-title {
@@ -361,7 +366,7 @@ input {
   align-items: end;
   gap: 12px;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   padding: 16px 4px 10px;
   border-radius: 8px;
   background:
@@ -433,11 +438,10 @@ input {
 
 .histogram-tooltip {
   position: absolute;
-  left: 50%;
-  bottom: 30px;
+  left: 0;
+  bottom: 34px;
   z-index: 3;
   width: 220px;
-  transform: translateX(-50%);
   border: 1px solid #d1d5db;
   border-radius: 8px;
   background: #111827;
@@ -447,6 +451,7 @@ input {
   gap: 4px;
   box-shadow: 0 16px 32px rgba(17, 24, 39, 0.24);
   pointer-events: none;
+  white-space: normal;
 }
 
 .histogram-tooltip strong {
@@ -487,10 +492,15 @@ input {
 
 .category-bars {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   max-height: 210px;
   overflow-y: auto;
   padding-right: 4px;
+}
+
+.area-compare-list {
+  display: grid;
+  gap: 12px;
 }
 
 .category-bars::-webkit-scrollbar {
@@ -507,7 +517,7 @@ input {
   border-radius: 999px;
 }
 
-.category-row {
+.amount-compare-row {
   display: grid;
   gap: 5px;
 }
@@ -527,19 +537,31 @@ input {
   white-space: nowrap;
 }
 
-.progress-track {
-  height: 10px;
+.amount-bars {
+  display: grid;
+  gap: 5px;
+}
+
+.amount-bars span {
+  height: 9px;
   background: #eef0f3;
   border-radius: 999px;
   overflow: hidden;
 }
 
-.progress-track span {
+.amount-bars i {
   height: 100%;
   min-width: 4px;
-  background: linear-gradient(90deg, #f3c74d, #c8a94b);
   display: block;
   border-radius: inherit;
+}
+
+.usd-track i {
+  background: linear-gradient(90deg, #047857, #10b981);
+}
+
+.lrd-track i {
+  background: linear-gradient(90deg, #c8a94b, #f3c74d);
 }
 
 .pie-wrap {
