@@ -118,6 +118,30 @@ type TypeChartRow = {
   count: number
 }
 
+type ManagerBalance = {
+  key: string
+  projectId: string
+  userId: string
+  projectName: string
+  managerName: string
+  expectedUsd: number
+  expectedLrd: number
+  balanceUsd: number
+  balanceLrd: number
+  hasActual: boolean
+}
+
+type BalanceSnapshot = {
+  date: string
+  expectedUsd: number
+  expectedLrd: number
+  balanceUsd: number
+  balanceLrd: number
+  actualCount: number
+  peopleCount: number
+  managers: ManagerBalance[]
+}
+
 const PHOTO_BUCKET = 'transaction-photos'
 
 const T = {
@@ -147,6 +171,13 @@ const T = {
   notEntered: '\u672a\u5f55\u5165',
   actualNotEntered: '\u5b9e\u70b9\u672a\u5f55\u5165',
   cashboxBalance: '\u94b1\u7bb1\u4f59\u989d',
+  latestBalance: '\u6700\u65b0\u4f59\u989d',
+  calculatedBalance: '\u5e94\u6709\u4f59\u989d',
+  realBalance: '\u5b9e\u70b9/\u5b9e\u65f6\u4f59\u989d',
+  managerBalances: '\u7ecf\u7406\u4f59\u989d',
+  latestDate: '\u622a\u81f3',
+  actualEnteredCount: '\u5df2\u5f55\u5165\u5b9e\u70b9',
+  noBalanceData: '\u5f53\u524d\u7b5b\u9009\u6682\u65e0\u4f59\u989d\u6570\u636e',
   noData: '\u8fd9\u4e2a\u6708\u6682\u65e0\u8bb0\u5f55',
   time: '\u65f6\u95f4',
   createdTime: '\u5f55\u5165\u65f6\u95f4',
@@ -378,6 +409,16 @@ function carryForwardCash(projectId: string, date: string, userId: string, allCa
   return buildSyntheticCash(projectId, date, userId, previous.actual_usd ?? balance.usd, previous.actual_lrd ?? balance.lrd)
 }
 
+function cashForDateOrCarryForward(projectId: string, date: string, userId: string, allCashRows: DailyCash[], allRows: Transaction[]) {
+  const current = allCashRows
+    .filter((row) => row.local_project_id === projectId && cashOwner(row) === userId && normalizeDate(row.date) === date)
+    .sort((a, b) => {
+      if (cashTimestamp(b) !== cashTimestamp(a)) return cashTimestamp(b) - cashTimestamp(a)
+      return Number(b.id ?? 0) - Number(a.id ?? 0)
+    })[0]
+  return current ?? carryForwardCash(projectId, date, userId, allCashRows, allRows)
+}
+
 function applyCashToSummary(total: DaySummary, cashRows: DailyCash[], rows: Transaction[], assignedKeys: string[], allCashRows: DailyCash[], allRows: Transaction[], date: string) {
   const transactionKeys = new Set(rows.map((row) => cashKey(row.local_project_id, row.created_by)))
   const cashByUser = new Map<string, DailyCash>()
@@ -420,6 +461,93 @@ function applyCashToSummary(total: DaySummary, cashRows: DailyCash[], rows: Tran
   }
   total.actualComplete = total.peopleCount > 0 && total.actualCount === total.peopleCount
   return total
+}
+
+function buildBalanceSnapshot(params: {
+  allowedProjectIds: Set<string>
+  projectId: string
+  userId: string
+  month: string
+  transactions: Transaction[]
+  dailyCash: DailyCash[]
+  projectUsers: ProjectUser[]
+  users: User[]
+  projects: Project[]
+}): BalanceSnapshot | null {
+  const scopedTransactions = params.transactions.filter((row) => {
+    if (row.active !== 1) return false
+    if (!params.allowedProjectIds.has(row.local_project_id)) return false
+    if (params.projectId !== 'all' && row.local_project_id !== params.projectId) return false
+    if (params.userId !== 'all' && row.created_by !== params.userId) return false
+    if (params.month && normalizeMonth(row.date) !== params.month) return false
+    return true
+  })
+  const scopedCash = params.dailyCash.filter((row) => {
+    const owner = cashOwner(row)
+    if (!params.allowedProjectIds.has(row.local_project_id)) return false
+    if (params.projectId !== 'all' && row.local_project_id !== params.projectId) return false
+    if (params.userId !== 'all' && owner !== params.userId) return false
+    if (params.month && normalizeMonth(row.date) !== params.month) return false
+    return true
+  })
+  const latestDate = [...scopedTransactions.map((row) => normalizeDate(row.date)), ...scopedCash.map((row) => normalizeDate(row.date))]
+    .filter(Boolean)
+    .sort((a, b) => b.localeCompare(a))[0]
+  if (!latestDate) return null
+
+  const targetProjectIds = params.projectId !== 'all'
+    ? [params.projectId]
+    : params.projects.filter((project) => params.allowedProjectIds.has(project.local_project_id)).map((project) => project.local_project_id)
+  const keys = new Set<string>()
+  params.projectUsers
+    .filter((assignment) => assignment.active === 1 && targetProjectIds.includes(assignment.local_project_id))
+    .filter((assignment) => params.userId === 'all' || assignment.local_user_id === params.userId)
+    .filter((assignment) => params.users.find((user) => user.local_user_id === assignment.local_user_id)?.role !== 'viewer')
+    .forEach((assignment) => keys.add(cashKey(assignment.local_project_id, assignment.local_user_id)))
+  scopedTransactions
+    .filter((row) => normalizeDate(row.date) === latestDate)
+    .forEach((row) => keys.add(cashKey(row.local_project_id, row.created_by)))
+  scopedCash
+    .filter((row) => normalizeDate(row.date) === latestDate)
+    .forEach((row) => {
+      const owner = cashOwner(row)
+      if (owner) keys.add(cashKey(row.local_project_id, owner))
+    })
+
+  const managers = Array.from(keys).map((key) => {
+    const [cashProjectId, owner] = key.split('::')
+    const cash = cashForDateOrCarryForward(cashProjectId, latestDate, owner, params.dailyCash, params.transactions)
+    const rows = params.transactions.filter((row) =>
+      row.active === 1 &&
+      row.local_project_id === cashProjectId &&
+      row.created_by === owner &&
+      normalizeDate(row.date) === latestDate
+    )
+    const expected = expectedBalance(cash, rows)
+    return {
+      key,
+      projectId: cashProjectId,
+      userId: owner,
+      projectName: params.projects.find((project) => project.local_project_id === cashProjectId)?.project_name ?? cashProjectId,
+      managerName: params.users.find((user) => user.local_user_id === owner)?.name ?? owner,
+      expectedUsd: expected.usd,
+      expectedLrd: expected.lrd,
+      balanceUsd: cash.actual_usd ?? expected.usd,
+      balanceLrd: cash.actual_lrd ?? expected.lrd,
+      hasActual: cash.actual_usd !== null && cash.actual_lrd !== null,
+    }
+  }).sort((a, b) => a.projectName.localeCompare(b.projectName) || a.managerName.localeCompare(b.managerName))
+
+  return {
+    date: latestDate,
+    expectedUsd: managers.reduce((total, item) => total + item.expectedUsd, 0),
+    expectedLrd: managers.reduce((total, item) => total + item.expectedLrd, 0),
+    balanceUsd: managers.reduce((total, item) => total + item.balanceUsd, 0),
+    balanceLrd: managers.reduce((total, item) => total + item.balanceLrd, 0),
+    actualCount: managers.filter((item) => item.hasActual).length,
+    peopleCount: managers.length,
+    managers,
+  }
 }
 
 function escapeCsv(value: string | number | null | undefined) {
@@ -649,6 +777,18 @@ function App() {
       .sort((a, b) => b.day.localeCompare(a.day))
   }, [dailyCash, filtered, filteredDailyCash, projectId, projectUsers, transactions, userId, users])
 
+  const balanceSnapshot = useMemo(() => buildBalanceSnapshot({
+    allowedProjectIds,
+    projectId,
+    userId,
+    month,
+    transactions,
+    dailyCash,
+    projectUsers,
+    users,
+    projects,
+  }), [allowedProjectIds, dailyCash, month, projectId, projectUsers, projects, transactions, userId, users])
+
   const projectName = (id: string) => projects.find((project) => project.local_project_id === id)?.project_name ?? id
   const userName = (id: string) => users.find((user) => user.local_user_id === id)?.name ?? id
 
@@ -747,6 +887,8 @@ function App() {
         <SummaryCard title={T.exchangeIn} usd={summary.exchangeInUsd} lrd={summary.exchangeInLrd} />
         <SummaryCard title={T.exchangeOut} usd={summary.exchangeOutUsd} lrd={summary.exchangeOutLrd} />
       </section>
+
+      <BalanceSnapshotSection snapshot={balanceSnapshot} />
 
       <StatsCharts daily={dailyChart} categories={categoryChart} types={typeChart} />
 
@@ -884,6 +1026,65 @@ function SummaryCard({
         </>
       )}
     </div>
+  )
+}
+
+function BalanceSnapshotSection({ snapshot }: { snapshot: BalanceSnapshot | null }) {
+  if (!snapshot) {
+    return (
+      <section className="balance-section">
+        <div className="balance-heading">
+          <div>
+            <p className="section-kicker">{T.latestBalance}</p>
+            <h2>{T.noBalanceData}</h2>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="balance-section">
+      <div className="balance-heading">
+        <div>
+          <p className="section-kicker">{T.latestBalance}</p>
+          <h2>{T.latestDate} {snapshot.date}</h2>
+        </div>
+        <span>{T.actualEnteredCount} {snapshot.actualCount}/{snapshot.peopleCount}</span>
+      </div>
+      <div className="balance-totals">
+        <SummaryCard title={T.calculatedBalance} usd={snapshot.expectedUsd} lrd={snapshot.expectedLrd} />
+        <SummaryCard title={T.realBalance} usd={snapshot.balanceUsd} lrd={snapshot.balanceLrd} tone={snapshot.actualCount ? 'good' : undefined} />
+      </div>
+      <div className="manager-balance-panel">
+        <div className="manager-balance-title">
+          <strong>{T.managerBalances}</strong>
+          <span>{snapshot.managers.length} {T.person}</span>
+        </div>
+        <div className="manager-balance-grid">
+          {snapshot.managers.map((item) => (
+            <div className="manager-balance-card" key={item.key}>
+              <div>
+                <strong>{item.managerName}</strong>
+                <span>{item.projectName}</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>{T.calculatedBalance}</dt>
+                  <dd>USD {money(item.expectedUsd)}</dd>
+                  <dd>LRD {money(item.expectedLrd)}</dd>
+                </div>
+                <div>
+                  <dt>{item.hasActual ? T.realBalance : T.actualNotEntered}</dt>
+                  <dd className={item.hasActual ? 'good' : ''}>USD {money(item.balanceUsd)}</dd>
+                  <dd className={item.hasActual ? 'good' : ''}>LRD {money(item.balanceLrd)}</dd>
+                </div>
+              </dl>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   )
 }
 
