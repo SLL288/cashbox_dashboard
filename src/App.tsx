@@ -881,14 +881,14 @@ function App() {
         </label>
       </section>
 
+      <BalanceSnapshotSection snapshot={balanceSnapshot} />
+
       <section className="summary-grid">
         <SummaryCard title={T.income} usd={summary.inUsd} lrd={summary.inLrd} tone="good" />
         <SummaryCard title={T.expenseTransfer} usd={summary.outUsd} lrd={summary.outLrd} tone="bad" />
         <SummaryCard title={T.exchangeIn} usd={summary.exchangeInUsd} lrd={summary.exchangeInLrd} />
         <SummaryCard title={T.exchangeOut} usd={summary.exchangeOutUsd} lrd={summary.exchangeOutLrd} />
       </section>
-
-      <BalanceSnapshotSection snapshot={balanceSnapshot} />
 
       <StatsCharts daily={dailyChart} categories={categoryChart} types={typeChart} />
 
