@@ -1091,6 +1091,10 @@ function BalanceSnapshotSection({ snapshot }: { snapshot: BalanceSnapshot | null
 function StatsCharts({ daily, categories, types }: { daily: DailyChartRow[]; categories: CategoryChartRow[]; types: TypeChartRow[] }) {
   const maxUsd = Math.max(1, ...daily.map((item) => Math.max(item.inUsd, item.outUsd)))
   const maxLrd = Math.max(1, ...daily.map((item) => Math.max(item.inLrd, item.outLrd)))
+  const logHeight = (value: number, max: number) => {
+    if (value <= 0) return '0%'
+    return `${Math.max(4, (Math.log10(value + 1) / Math.log10(max + 1)) * 100)}%`
+  }
   const maxCategoryCount = Math.max(1, ...categories.map((item) => item.count))
   const totalTypeCount = Math.max(1, types.reduce((total, item) => total + item.count, 0))
   const colors: Record<TransactionType, string> = {
@@ -1113,18 +1117,18 @@ function StatsCharts({ daily, categories, types }: { daily: DailyChartRow[]; cat
       <div className="chart-card wide">
         <div className="chart-title">
           <strong>{'\u6bcf\u65e5\u6536\u652f\u8d8b\u52bf'}</strong>
-          <span>{'\u6309\u5f53\u524d\u7b5b\u9009'}</span>
+          <span>{'\u6309\u5f53\u524d\u7b5b\u9009 / Log'}</span>
         </div>
         <div className="histogram">
           {daily.length ? daily.map((item) => (
             <div className="day-bars" key={item.day} title={`${item.day} / ${item.count} ${T.recordsShort}`}>
               <div className="bar-pair">
-                <span className="bar good-bg" style={{ height: `${Math.max(4, (item.inUsd / maxUsd) * 100)}%` }} />
-                <span className="bar bad-bg" style={{ height: `${Math.max(4, (item.outUsd / maxUsd) * 100)}%` }} />
+                <span className="bar good-bg" style={{ height: logHeight(item.inUsd, maxUsd) }} />
+                <span className="bar bad-bg" style={{ height: logHeight(item.outUsd, maxUsd) }} />
               </div>
               <div className="bar-pair lrd-bars">
-                <span className="bar good-bg" style={{ height: `${Math.max(4, (item.inLrd / maxLrd) * 100)}%` }} />
-                <span className="bar bad-bg" style={{ height: `${Math.max(4, (item.outLrd / maxLrd) * 100)}%` }} />
+                <span className="bar good-bg" style={{ height: logHeight(item.inLrd, maxLrd) }} />
+                <span className="bar bad-bg" style={{ height: logHeight(item.outLrd, maxLrd) }} />
               </div>
               <span className="day-label">{item.day.slice(5)}</span>
             </div>
