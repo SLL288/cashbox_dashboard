@@ -177,6 +177,7 @@ const T = {
   managerBalances: '\u7ecf\u7406\u4f59\u989d',
   latestDate: '\u622a\u81f3',
   actualEnteredCount: '\u5df2\u5f55\u5165\u5b9e\u70b9',
+  liveBalanceHint: '\u5f53\u524d\u72b6\u6001\uff0c\u4e0d\u53d7\u6708\u4efd\u548c\u641c\u7d22\u5f71\u54cd',
   noBalanceData: '\u5f53\u524d\u7b5b\u9009\u6682\u65e0\u4f59\u989d\u6570\u636e',
   noData: '\u8fd9\u4e2a\u6708\u6682\u65e0\u8bb0\u5f55',
   time: '\u65f6\u95f4',
@@ -467,7 +468,6 @@ function buildBalanceSnapshot(params: {
   allowedProjectIds: Set<string>
   projectId: string
   userId: string
-  month: string
   transactions: Transaction[]
   dailyCash: DailyCash[]
   projectUsers: ProjectUser[]
@@ -479,7 +479,6 @@ function buildBalanceSnapshot(params: {
     if (!params.allowedProjectIds.has(row.local_project_id)) return false
     if (params.projectId !== 'all' && row.local_project_id !== params.projectId) return false
     if (params.userId !== 'all' && row.created_by !== params.userId) return false
-    if (params.month && normalizeMonth(row.date) !== params.month) return false
     return true
   })
   const scopedCash = params.dailyCash.filter((row) => {
@@ -487,7 +486,6 @@ function buildBalanceSnapshot(params: {
     if (!params.allowedProjectIds.has(row.local_project_id)) return false
     if (params.projectId !== 'all' && row.local_project_id !== params.projectId) return false
     if (params.userId !== 'all' && owner !== params.userId) return false
-    if (params.month && normalizeMonth(row.date) !== params.month) return false
     return true
   })
   const latestDate = [...scopedTransactions.map((row) => normalizeDate(row.date)), ...scopedCash.map((row) => normalizeDate(row.date))]
@@ -781,13 +779,12 @@ function App() {
     allowedProjectIds,
     projectId,
     userId,
-    month,
     transactions,
     dailyCash,
     projectUsers,
     users,
     projects,
-  }), [allowedProjectIds, dailyCash, month, projectId, projectUsers, projects, transactions, userId, users])
+  }), [allowedProjectIds, dailyCash, projectId, projectUsers, projects, transactions, userId, users])
 
   const projectName = (id: string) => projects.find((project) => project.local_project_id === id)?.project_name ?? id
   const userName = (id: string) => users.find((user) => user.local_user_id === id)?.name ?? id
@@ -850,6 +847,8 @@ function App() {
 
       {error ? <div className="error">{T.readFailed}{error}</div> : null}
 
+      <BalanceSnapshotSection snapshot={balanceSnapshot} />
+
       <section className="filters">
         <label>
           {T.project}
@@ -880,8 +879,6 @@ function App() {
           </span>
         </label>
       </section>
-
-      <BalanceSnapshotSection snapshot={balanceSnapshot} />
 
       <section className="summary-grid">
         <SummaryCard title={T.income} usd={summary.inUsd} lrd={summary.inLrd} tone="good" />
@@ -1049,6 +1046,7 @@ function BalanceSnapshotSection({ snapshot }: { snapshot: BalanceSnapshot | null
         <div>
           <p className="section-kicker">{T.latestBalance}</p>
           <h2>{T.latestDate} {snapshot.date}</h2>
+          <p className="section-note">{T.liveBalanceHint}</p>
         </div>
         <span>{T.actualEnteredCount} {snapshot.actualCount}/{snapshot.peopleCount}</span>
       </div>
