@@ -1091,10 +1091,12 @@ function BalanceSnapshotSection({ snapshot }: { snapshot: BalanceSnapshot | null
 function StatsCharts({ daily, categories, types }: { daily: DailyChartRow[]; categories: CategoryChartRow[]; types: TypeChartRow[] }) {
   const maxUsd = Math.max(1, ...daily.map((item) => Math.max(item.inUsd, item.outUsd)))
   const maxLrd = Math.max(1, ...daily.map((item) => Math.max(item.inLrd, item.outLrd)))
-  const logHeight = (value: number, max: number) => {
+  const maxChartValue = Math.max(maxUsd, maxLrd)
+  const logHeight = (value: number) => {
     if (value <= 0) return '0%'
-    return `${Math.max(4, (Math.log10(value + 1) / Math.log10(max + 1)) * 100)}%`
+    return `${Math.max(4, (Math.log10(value + 1) / Math.log10(maxChartValue + 1)) * 100)}%`
   }
+  const axisLabels = [maxChartValue, Math.sqrt(maxChartValue), 0]
   const maxCategoryCount = Math.max(1, ...categories.map((item) => item.count))
   const totalTypeCount = Math.max(1, types.reduce((total, item) => total + item.count, 0))
   const colors: Record<TransactionType, string> = {
@@ -1119,20 +1121,35 @@ function StatsCharts({ daily, categories, types }: { daily: DailyChartRow[]; cat
           <strong>{'\u6bcf\u65e5\u6536\u652f\u8d8b\u52bf'}</strong>
           <span>{'\u6309\u5f53\u524d\u7b5b\u9009 / Log'}</span>
         </div>
-        <div className="histogram">
-          {daily.length ? daily.map((item) => (
-            <div className="day-bars" key={item.day} title={`${item.day} / ${item.count} ${T.recordsShort}`}>
-              <div className="bar-pair">
-                <span className="bar good-bg" style={{ height: logHeight(item.inUsd, maxUsd) }} />
-                <span className="bar bad-bg" style={{ height: logHeight(item.outUsd, maxUsd) }} />
+        <div className="histogram-frame">
+          <div className="histogram-axis" aria-hidden="true">
+            {axisLabels.map((value) => (
+              <span key={value}>{value >= 1000 ? `${money(value / 1000)}k` : money(value)}</span>
+            ))}
+          </div>
+          <div className="histogram">
+            {daily.length ? daily.map((item) => (
+              <div className="day-bars" key={item.day}>
+                <div className="bar-pair">
+                  <span className="bar good-bg" style={{ height: logHeight(item.inUsd) }} />
+                  <span className="bar bad-bg" style={{ height: logHeight(item.outUsd) }} />
+                </div>
+                <div className="bar-pair lrd-bars">
+                  <span className="bar good-bg" style={{ height: logHeight(item.inLrd) }} />
+                  <span className="bar bad-bg" style={{ height: logHeight(item.outLrd) }} />
+                </div>
+                <span className="day-label">{item.day.slice(5)}</span>
+                <div className="histogram-tooltip">
+                  <strong>{item.day}</strong>
+                  <span>{item.count} {T.recordsShort}</span>
+                  <span>USD {T.income} {money(item.inUsd)}</span>
+                  <span>USD {T.expenseTransfer} {money(item.outUsd)}</span>
+                  <span>LRD {T.income} {money(item.inLrd)}</span>
+                  <span>LRD {T.expenseTransfer} {money(item.outLrd)}</span>
+                </div>
               </div>
-              <div className="bar-pair lrd-bars">
-                <span className="bar good-bg" style={{ height: logHeight(item.inLrd, maxLrd) }} />
-                <span className="bar bad-bg" style={{ height: logHeight(item.outLrd, maxLrd) }} />
-              </div>
-              <span className="day-label">{item.day.slice(5)}</span>
-            </div>
-          )) : <div className="empty mini">{T.noData}</div>}
+            )) : <div className="empty mini">{T.noData}</div>}
+          </div>
         </div>
         <div className="legend">
           <span><i className="legend-dot good-bg" />USD/LRD {T.income}</span>
