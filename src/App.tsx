@@ -259,6 +259,11 @@ function browserClockText() {
   })
 }
 
+function browserDateText() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
 function browserTimezoneText() {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local'
   const offsetMinutes = -new Date().getTimezoneOffset()
@@ -499,6 +504,7 @@ function buildBalanceSnapshot(params: {
   allowedProjectIds: Set<string>
   projectId: string
   userId: string
+  asOfDate: string
   transactions: Transaction[]
   dailyCash: DailyCash[]
   projectUsers: ProjectUser[]
@@ -510,6 +516,7 @@ function buildBalanceSnapshot(params: {
     if (!params.allowedProjectIds.has(row.local_project_id)) return false
     if (params.projectId !== 'all' && row.local_project_id !== params.projectId) return false
     if (params.userId !== 'all' && row.created_by !== params.userId) return false
+    if (normalizeDate(row.date) > params.asOfDate) return false
     return true
   })
   const scopedCash = params.dailyCash.filter((row) => {
@@ -517,12 +524,9 @@ function buildBalanceSnapshot(params: {
     if (!params.allowedProjectIds.has(row.local_project_id)) return false
     if (params.projectId !== 'all' && row.local_project_id !== params.projectId) return false
     if (params.userId !== 'all' && owner !== params.userId) return false
+    if (normalizeDate(row.date) > params.asOfDate) return false
     return true
   })
-  const latestDate = [...scopedTransactions.map((row) => normalizeDate(row.date)), ...scopedCash.map((row) => normalizeDate(row.date))]
-    .filter(Boolean)
-    .sort((a, b) => b.localeCompare(a))[0]
-  if (!latestDate) return null
 
   const targetProjectIds = params.projectId !== 'all'
     ? [params.projectId]
@@ -534,10 +538,10 @@ function buildBalanceSnapshot(params: {
     .filter((assignment) => params.users.find((user) => user.local_user_id === assignment.local_user_id)?.role !== 'viewer')
     .forEach((assignment) => keys.add(cashKey(assignment.local_project_id, assignment.local_user_id)))
   scopedTransactions
-    .filter((row) => normalizeDate(row.date) === latestDate)
+    .filter((row) => normalizeDate(row.date) === params.asOfDate)
     .forEach((row) => keys.add(cashKey(row.local_project_id, row.created_by)))
   scopedCash
-    .filter((row) => normalizeDate(row.date) === latestDate)
+    .filter((row) => normalizeDate(row.date) === params.asOfDate)
     .forEach((row) => {
       const owner = cashOwner(row)
       if (owner) keys.add(cashKey(row.local_project_id, owner))
@@ -545,12 +549,12 @@ function buildBalanceSnapshot(params: {
 
   const managers = Array.from(keys).map((key) => {
     const [cashProjectId, owner] = key.split('::')
-    const cash = cashForDateOrCarryForward(cashProjectId, latestDate, owner, params.dailyCash, params.transactions)
-    const rows = params.transactions.filter((row) =>
+    const cash = cashForDateOrCarryForward(cashProjectId, params.asOfDate, owner, scopedCash, scopedTransactions)
+    const rows = scopedTransactions.filter((row) =>
       row.active === 1 &&
       row.local_project_id === cashProjectId &&
       row.created_by === owner &&
-      normalizeDate(row.date) === latestDate
+      normalizeDate(row.date) === params.asOfDate
     )
     const expected = expectedBalance(cash, rows)
     return {
@@ -568,7 +572,7 @@ function buildBalanceSnapshot(params: {
   }).sort((a, b) => a.projectName.localeCompare(b.projectName) || a.managerName.localeCompare(b.managerName))
 
   return {
-    date: latestDate,
+    date: params.asOfDate,
     expectedUsd: managers.reduce((total, item) => total + item.expectedUsd, 0),
     expectedLrd: managers.reduce((total, item) => total + item.expectedLrd, 0),
     balanceUsd: managers.reduce((total, item) => total + item.balanceUsd, 0),
@@ -643,6 +647,7 @@ function App() {
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({})
   const [photoPreview, setPhotoPreview] = useState<PhotoPreview | null>(null)
   const [browserNow, setBrowserNow] = useState(browserClockText())
+  const [browserDate, setBrowserDate] = useState(browserDateText())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -673,7 +678,10 @@ function App() {
   }, [load])
 
   useEffect(() => {
-    const timer = window.setInterval(() => setBrowserNow(browserClockText()), 60_000)
+    const timer = window.setInterval(() => {
+      setBrowserNow(browserClockText())
+      setBrowserDate(browserDateText())
+    }, 60_000)
     return () => window.clearInterval(timer)
   }, [])
 
@@ -836,12 +844,13 @@ function App() {
     allowedProjectIds,
     projectId,
     userId,
+    asOfDate: browserDate,
     transactions,
     dailyCash,
     projectUsers,
     users,
     projects,
-  }), [allowedProjectIds, dailyCash, projectId, projectUsers, projects, transactions, userId, users])
+  }), [allowedProjectIds, browserDate, dailyCash, projectId, projectUsers, projects, transactions, userId, users])
 
   const projectName = (id: string) => projects.find((project) => project.local_project_id === id)?.project_name ?? id
   const userName = (id: string) => users.find((user) => user.local_user_id === id)?.name ?? id
