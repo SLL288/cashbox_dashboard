@@ -188,6 +188,9 @@ const T = {
   latestDate: '\u622a\u81f3',
   actualEnteredCount: '\u5df2\u5f55\u5165\u5b9e\u70b9',
   liveBalanceHint: '\u5f53\u524d\u72b6\u6001\uff0c\u4e0d\u53d7\u6708\u4efd\u548c\u641c\u7d22\u5f71\u54cd',
+  browserTime: '\u6d4f\u89c8\u5668\u65f6\u95f4',
+  dataDate: '\u6570\u636e\u65e5\u671f',
+  timezone: '\u65f6\u533a',
   noBalanceData: '\u5f53\u524d\u7b5b\u9009\u6682\u65e0\u4f59\u989d\u6570\u636e',
   noData: '\u8fd9\u4e2a\u6708\u6682\u65e0\u8bb0\u5f55',
   time: '\u65f6\u95f4',
@@ -244,6 +247,24 @@ function formatDateTime(value: string | null | undefined) {
   const parsed = new Date(String(value ?? ''))
   if (Number.isNaN(parsed.getTime())) return ''
   return parsed.toLocaleString()
+}
+
+function browserClockText() {
+  return new Date().toLocaleString([], {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function browserTimezoneText() {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local'
+  const offsetMinutes = -new Date().getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? '+' : '-'
+  const absolute = Math.abs(offsetMinutes)
+  return `${timezone} UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`
 }
 
 function getPhotoPath(uri: string | null | undefined) {
@@ -621,6 +642,7 @@ function App() {
   const [openDays, setOpenDays] = useState<Record<string, boolean>>({})
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({})
   const [photoPreview, setPhotoPreview] = useState<PhotoPreview | null>(null)
+  const [browserNow, setBrowserNow] = useState(browserClockText())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -649,6 +671,11 @@ function App() {
     const timer = window.setTimeout(() => void load(), 0)
     return () => window.clearTimeout(timer)
   }, [load])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setBrowserNow(browserClockText()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const allowedProjectIds = useMemo(() => {
     if (!currentUser) return new Set<string>()
@@ -877,7 +904,7 @@ function App() {
 
       {error ? <div className="error">{T.readFailed}{error}</div> : null}
 
-      <BalanceSnapshotSection snapshot={balanceSnapshot} />
+      <BalanceSnapshotSection snapshot={balanceSnapshot} browserNow={browserNow} timezone={browserTimezoneText()} />
 
       <section className="filters">
         <label>
@@ -1056,7 +1083,7 @@ function SummaryCard({
   )
 }
 
-function BalanceSnapshotSection({ snapshot }: { snapshot: BalanceSnapshot | null }) {
+function BalanceSnapshotSection({ snapshot, browserNow, timezone }: { snapshot: BalanceSnapshot | null; browserNow: string; timezone: string }) {
   if (!snapshot) {
     return (
       <section className="balance-section">
@@ -1064,6 +1091,7 @@ function BalanceSnapshotSection({ snapshot }: { snapshot: BalanceSnapshot | null
           <div>
             <p className="section-kicker">{T.latestBalance}</p>
             <h2>{T.noBalanceData}</h2>
+            <p className="section-note">{T.browserTime}: {browserNow} / {T.timezone}: {timezone}</p>
           </div>
         </div>
       </section>
@@ -1075,7 +1103,8 @@ function BalanceSnapshotSection({ snapshot }: { snapshot: BalanceSnapshot | null
       <div className="balance-heading">
         <div>
           <p className="section-kicker">{T.latestBalance}</p>
-          <h2>{T.latestDate} {snapshot.date}</h2>
+          <h2>{T.browserTime}: {browserNow}</h2>
+          <p className="section-note">{T.timezone}: {timezone} / {T.dataDate}: {snapshot.date}</p>
           <p className="section-note">{T.liveBalanceHint}</p>
         </div>
         <span>{T.actualEnteredCount} {snapshot.actualCount}/{snapshot.peopleCount}</span>
