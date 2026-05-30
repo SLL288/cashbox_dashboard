@@ -367,7 +367,8 @@ input {
   gap: 12px;
   overflow-x: auto;
   overflow-y: visible;
-  padding: 16px 4px 10px;
+  padding: 16px 180px 10px 4px;
+  scroll-padding-right: 180px;
   border-radius: 8px;
   background:
     linear-gradient(to top, rgba(17, 24, 39, 0.08) 1px, transparent 1px) 0 0 / 100% 25%,
@@ -452,6 +453,11 @@ input {
   box-shadow: 0 16px 32px rgba(17, 24, 39, 0.24);
   pointer-events: none;
   white-space: normal;
+}
+
+.day-bars:nth-last-child(-n + 2) .histogram-tooltip {
+  left: auto;
+  right: 0;
 }
 
 .histogram-tooltip strong {
