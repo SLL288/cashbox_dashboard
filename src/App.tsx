@@ -173,6 +173,7 @@ const T = {
   searchPlaceholder: '\u7c7b\u522b\u3001\u5907\u6ce8\u3001\u5730\u70b9\u3001\u7c7b\u578b',
   income: '\u6536\u5165',
   expenseTransfer: '\u652f\u51fa/\u8f6c\u8d26',
+  transferOnly: '\u8f6c\u8d26',
   expenseCompare: '\u652f\u51fa\u5bf9\u6bd4',
   areaCompare: '\u5916\u56f4 / \u77ff\u533a',
   categoryCompare: '\u7c7b\u522b\u5bf9\u6bd4',
@@ -726,6 +727,19 @@ function App() {
 
   const summary = useMemo(() => filtered.reduce(addToSummary, blankSummary()), [filtered])
 
+  const outgoingSummary = useMemo(() => {
+    return filtered.reduce((totals, row) => {
+      if (row.type !== 'expense' && row.type !== 'transfer') return totals
+      const target = row.type === 'expense' ? totals.expense : totals.transfer
+      if (row.currency === 'USD') target.usd += Number(row.amount) || 0
+      if (row.currency === 'LRD') target.lrd += Number(row.amount) || 0
+      return totals
+    }, {
+      expense: { usd: 0, lrd: 0 },
+      transfer: { usd: 0, lrd: 0 },
+    })
+  }, [filtered])
+
   const dailyChart = useMemo(() => {
     const map = new Map<string, DailyChartRow>()
     filtered.forEach((row) => {
@@ -976,7 +990,8 @@ function App() {
 
       <section className="summary-grid">
         <SummaryCard title={T.income} usd={summary.inUsd} lrd={summary.inLrd} tone="good" />
-        <SummaryCard title={T.expenseTransfer} usd={summary.outUsd} lrd={summary.outLrd} tone="bad" />
+        <SummaryCard title={T.expense} usd={outgoingSummary.expense.usd} lrd={outgoingSummary.expense.lrd} tone="bad" />
+        <SummaryCard title={T.transferOnly} usd={outgoingSummary.transfer.usd} lrd={outgoingSummary.transfer.lrd} tone="bad" />
         <SummaryCard title={T.exchangeIn} usd={summary.exchangeInUsd} lrd={summary.exchangeInLrd} />
         <SummaryCard title={T.exchangeOut} usd={summary.exchangeOutUsd} lrd={summary.exchangeOutLrd} />
       </section>
