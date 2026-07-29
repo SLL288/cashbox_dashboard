@@ -113,6 +113,13 @@ type CategoryChartRow = {
   count: number
 }
 
+type CategoryExpenseTotal = {
+  category: string
+  usd: number
+  lrd: number
+  count: number
+}
+
 type AreaExpenseRow = {
   area: string
   usd: number
@@ -169,6 +176,10 @@ const T = {
   expenseCompare: '\u652f\u51fa\u5bf9\u6bd4',
   areaCompare: '\u5916\u56f4 / \u77ff\u533a',
   categoryCompare: '\u7c7b\u522b\u5bf9\u6bd4',
+  categoryExpenseTotals: '\u5206\u7c7b\u652f\u51fa\u5408\u8ba1',
+  currentFilter: '\u6309\u5f53\u524d\u7b5b\u9009',
+  internalTransfer: '\u5185\u90e8\u8f6c\u8d26',
+  other: '\u5176\u4ed6',
   exchangeIn: '\u5151\u6362\u5165',
   exchangeOut: '\u5151\u6362\u51fa',
   dailyOverview: '\u6bcf\u65e5\u6c47\u603b',
@@ -741,6 +752,23 @@ function App() {
     return Array.from(map.values()).sort((a, b) => b.count - a.count).slice(0, 10)
   }, [filtered])
 
+  const categoryExpenseTotals = useMemo(() => {
+    const map = new Map<string, CategoryExpenseTotal>()
+    filtered
+      .filter((row) => row.type === 'expense' || row.type === 'transfer')
+      .forEach((row) => {
+        const category = row.type === 'transfer' ? T.internalTransfer : row.category.trim() || T.other
+        const item = map.get(category) ?? { category, usd: 0, lrd: 0, count: 0 }
+        if (row.currency === 'USD') item.usd += Number(row.amount) || 0
+        if (row.currency === 'LRD') item.lrd += Number(row.amount) || 0
+        item.count += 1
+        map.set(category, item)
+      })
+    return Array.from(map.values()).sort((a, b) =>
+      (b.usd + b.lrd) - (a.usd + a.lrd) || b.count - a.count || a.category.localeCompare(b.category),
+    )
+  }, [filtered])
+
   const areaExpenseChart = useMemo(() => {
     const map = new Map<string, AreaExpenseRow>()
     filtered
@@ -953,6 +981,8 @@ function App() {
         <SummaryCard title={T.exchangeOut} usd={summary.exchangeOutUsd} lrd={summary.exchangeOutLrd} />
       </section>
 
+      <CategoryExpenseTotals totals={categoryExpenseTotals} />
+
       <StatsCharts daily={dailyChart} categories={categoryChart} areaExpenses={areaExpenseChart} types={typeChart} />
 
       <section className="days-shell">
@@ -1089,6 +1119,31 @@ function SummaryCard({
         </>
       )}
     </div>
+  )
+}
+
+function CategoryExpenseTotals({ totals }: { totals: CategoryExpenseTotal[] }) {
+  return (
+    <section className="category-expense-section">
+      <div className="category-expense-heading">
+        <strong>{T.categoryExpenseTotals}</strong>
+        <span>{T.currentFilter} / {totals.reduce((total, item) => total + item.count, 0)} {T.records}</span>
+      </div>
+      {totals.length ? (
+        <div className="category-expense-grid">
+          {totals.map((item) => (
+            <article className="category-expense-card" key={item.category}>
+              <div>
+                <strong>{item.category}</strong>
+                <span>{item.count} {T.recordsShort}</span>
+              </div>
+              <p>USD {money(item.usd)}</p>
+              <p>LRD {money(item.lrd)}</p>
+            </article>
+          ))}
+        </div>
+      ) : <div className="empty mini">{T.noData}</div>}
+    </section>
   )
 }
 
